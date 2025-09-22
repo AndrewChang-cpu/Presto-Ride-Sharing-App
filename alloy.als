@@ -1,79 +1,59 @@
-// --- Core entities ---
+// Core entities
 sig Rider {
-  request : lone RideReq,       // each rider has at most one active request
-  assignedTo : set Region       // regions the rider belongs to
+    requests : lone RideReq,       // at most one active request
 }
 
-sig Driver {
-  state : one DriverState,      // must always be in exactly one state
-  regions : set Region          // regions driver is willing to serve
+abstract sig Driver {
+    operatesIn : set Region       // rider may be assigned a driver
 }
-
-abstract sig DriverState {}
-one sig Available, Driving, Offline extends DriverState {}
+sig Available, Offline extends Driver {}
+sig Driving extends Driver {
+    assigned : one Riding        // must be assigned to exactly one ride request
+}
 
 sig Region {
-  contains : some Location
+    contains : some Location       // each region covers some locations
 }
 
 sig Location {}
 
-// --- Ride Requests ---
-sig RideReq {
-  origin : one Location,
-  dest   : one Location,
-  rider  : one Rider,
-  status : one RideStatus,
-  driver : lone Driver           // driver matched (none until matched)
+// Ride requests
+abstract sig RideReq {
+    origin : one Location,
+    dest   : one Location
 }
 
-abstract sig RideStatus {}
-one sig Pending, Riding extends RideStatus {}
+sig Pending extends RideReq {}
+sig Riding extends RideReq {}
 
 
-// --- Invariants ---
 pred invariants {
-  // 1. Each rider has at most one active request
-  all r : Rider | lone r.request
+    // 1. Each Rider has at most one active request (already enforced by "lone requests").
+    // But if they have one, it must be either Pending or Riding.
+    // all r : Rider | lone r.requests implies (r.requests in Pending + Riding)
 
-  // 2. A rider’s request must point back to the same rider
-  all req : RideReq | req.rider.request = req
+    // 2. A Driving driver must be assigned to exactly one Riding request
+    // all d : Driving | one d.assigned
+    // all d : Driving | d.assigned in Riding
 
-  // 3. A request’s origin and destination must be different
-  all req : RideReq | req.origin != req.dest
+    // 3. No Available or Offline driver may be assigned to a request
+    // all d : Available + Offline | no r : Riding | d in Driver<:assigned
 
-  // 4. If a request is Riding, then it must have a driver assigned and that driver is Driving
-  all req : RideReq |
-    (req.status = Riding implies (some req.driver and req.driver.state = Driving))
+    // 4. Each request’s origin and destination must belong to exactly one region
+    // all req : RideReq | one r1 : Region | req.origin in r1.contains
+    // all req : RideReq | one r2 : Region | req.dest   in r2.contains
 
-  // 5. If a driver is Driving, then they must be assigned to at least one request with status Riding
-  all d : Driver |
-    (d.state = Driving implies some req : RideReq | req.driver = d and req.status = Riding)
+    // 5. If a driver is assigned to a Riding request, both origin and dest must be in their regions
+    // all d : Driving | let ride = d.assigned |
+    //     (some reg1 : d.operatesIn | ride.origin in reg1.contains) and
+    //     (some reg2 : d.operatesIn | ride.dest   in reg2.contains)
 
-  // 6. If a request is Pending, then its driver must be none
-  all req : RideReq | (req.status = Pending implies no req.driver)
-
-  // 7. Drivers cannot require themselves (region sanity: not needed here, but included as check)
-  // all d : Driver | d not in d.regions
-
-  // 8. Request within driver’s regions: origin and destination must be in driver’s regions
-  all req : RideReq |
-    some req.driver implies (
-      req.origin in (req.driver.regions.contains) and
-      req.dest in (req.driver.regions.contains)
-    )
-
-  // Every location is contained in exactly one region
-  all l : Location | one r : Region | l in r.contains
-
-  // If there's an avail
+    // 6. Riders with a Riding request are served by exactly one Driving driver
+    // all r : Rider | r.requests in Riding implies
+    //     one d : Driving | d.assigned = r.requests
 }
 
 
-// --- Run command ---
 run GenerateValidInstance {
-  invariants
-  some Rider
-  some Driver
-  some RideReq
+    invariants
 } for 2
