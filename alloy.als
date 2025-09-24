@@ -24,7 +24,6 @@ abstract sig RideReq {
     origin: one Location,
     dest: one Location,
 }
-
 sig PendingReq extends RideReq {}
 sig RidingReq extends RideReq {}
 
@@ -34,11 +33,10 @@ pred invariants {
 
     // Each Riding request must be assigned to exactly one Driving driver
     all rq: RidingReq | one d: Driving | rq in d.assigned
-	all rq: RidingReq | one r:Rider | rq in r.requests
     all l: Location | some r: Region | l in r.contains
     
     // Every ride request must have one rider
-    all rr : RidingReq | one r : Rider | r.requests = rr 
+    all rr : RidingReq | one r: Rider | r.requests = rr
 }
 
 run GenerateValidInstance {
