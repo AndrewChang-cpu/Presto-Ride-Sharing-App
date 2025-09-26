@@ -2,6 +2,7 @@ sig Presto {
 	rider: set Rider,
 	available_driver : set Available,
 	offline_driver : set Offline,
+	driving_driver : set Driving,
 	pending_request: set PendingReq,
 	riding_request: set RidingReq,
 	region: set Region,
@@ -43,7 +44,7 @@ pred invariants[p: Presto] {
     all req : p.pending_request + p.riding_request | req.origin != req.dest
 
     // Each Riding request must be assigned to exactly one Driving driver
-    all rq : p.riding_request | one d : Driving | rq in d.assigned
+    all rq : p.riding_request | one d : p.driving_driver | d.assigned = rq
 
     // Every location must belong to exactly one region
     all l : p.location | one r : p.region | l in r.contains
@@ -69,6 +70,7 @@ pred op_request[p1, p2 : Presto, r : Rider, req : PendingReq] {
     p2.rider            = p1.rider
     p2.available_driver = p1.available_driver
     p2.offline_driver   = p1.offline_driver
+    p2.driving_driver   = p1.driving_driver
     p2.riding_request   = p1.riding_request
     p2.region           = p1.region
     p2.location         = p1.location
@@ -89,6 +91,7 @@ pred op_cancel[p1, p2 : Presto, r : Rider] {
     p2.rider            = p1.rider
     p2.available_driver = p1.available_driver
     p2.offline_driver   = p1.offline_driver
+    p2.driving_driver   = p1.driving_driver
     p2.riding_request   = p1.riding_request
     p2.region           = p1.region
     p2.location         = p1.location
@@ -113,6 +116,7 @@ pred op_match[p1, p2 : Presto, r : Rider, d : Available, ride : RidingReq] {
 
     // post: driver moves from available to driving and is assigned
     p2.available_driver = p1.available_driver - d
+    p2.driving_driver   = p1.driving_driver + d
     some drv : Driving | drv.assigned = ride
 
     // everything else unchanged
@@ -133,6 +137,7 @@ pred op_complete[p1, p2 : Presto, r : Rider, d : Driving] {
 
     // update system sets
     p2.riding_request  = p1.riding_request - d.assigned
+    p2.driving_driver  = p1.driving_driver - d
     p2.available_driver = p1.available_driver + d
 
     // everything else unchanged
@@ -170,16 +175,18 @@ check MatchPreservesInvariants for 4 but 2 Presto
 check CompletePreservesInvariants for 4 but 2 Presto
 
 run GenerateValidInstance {
-    some p : Presto | invariants[p]
- 	#Presto=2
+  all p : Presto | invariants[p]
+ 	#Presto=1
 
-  all p, p2 : Presto, r : Rider, req : PendingReq |
-    invariants[p] and op_request[p, p2, r, req] implies invariants[p2]
+  // all p, p2 : Presto, r : Rider, req : PendingReq |
+  //   invariants[p] and op_request[p, p2, r, req] implies invariants[p2]
 	
-    //#Region=2
-    //#Location=1
-    #PendingReq >= 1
-    #RidingReq >= 1
+  //#Region=2
+  //#Location=1
+  #Available=1
+  #Driving=2
+  #PendingReq >= 1
+  #RidingReq >= 1
 } for 3
 
 
