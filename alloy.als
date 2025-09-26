@@ -51,7 +51,7 @@ pred invariants[p: Presto] {
     // Every ride request must have one rider in p.rider
     all rq : p.pending_request + p.riding_request | one r : p.rider | r.requests = rq
     
-    
+
 }
 
 
@@ -100,6 +100,9 @@ pred op_match[p1, p2 : Presto, r : Rider, d : Available, ride : RidingReq] {
     some r.requests and r.requests in p1.pending_request
     // precondition: driver is available
     d in p1.available_driver
+    // precondition: request locations not in driver regions implies that no other available drivers have regions that match the request locations
+    (r.requests.origin !in d.operatesIn.contains or r.requests.dest !in d.operatesIn.contains) implies
+        no other : Available | other != d and (r.requests.origin in other.operatesIn.contains and r.requests.dest in other.operatesIn.contains)
 
     // post: rider’s pending request becomes a riding request
     r.requests = ride
