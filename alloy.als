@@ -51,8 +51,15 @@ pred invariants[p: Presto] {
 
     // Every ride request must have one rider in p.rider
     all rq : p.pending_request + p.riding_request | one r : p.rider | r.requests = rq
-    
+}
 
+
+fact {
+  all r: Rider | some p : Presto | r in p.rider
+  all d: Driver | some p : Presto | d in p.available_driver + p.offline_driver + p.driving_driver
+  all req: Request | some p : Presto | req in p.pending_request + p.riding_request
+  all reg: Region | some p : Presto | reg in p.region
+  all loc: Location | some p : Presto | loc in p.location
 }
 
 
