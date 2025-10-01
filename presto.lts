@@ -1,0 +1,71 @@
+// ======================================================
+// Presto – Match-Making with Generalized Queue
+// ======================================================
+
+const N_RIDERS  = 2
+const N_DRIVERS = 2
+const QMAX      = 3        
+
+range RIDERS   = 0..N_RIDERS-1
+range DRIVERS  = 0..N_DRIVERS-1
+range QSIZE    = 0..QMAX
+
+// ------------------- Rider -------------------
+RIDER(ID=0) = IDLE,
+IDLE        = (request[ID] -> WAITING),
+WAITING     = (match[ID][d:DRIVERS] -> RIDING
+              | cancel[ID] -> IDLE),
+RIDING      = (complete[ID][d:DRIVERS] -> IDLE).
+
+// ------------------- Driver -------------------
+DRIVER(ID=0) = AVAILABLE,
+AVAILABLE    = (match[r:RIDERS][ID] -> DRIVING),
+DRIVING      = (complete[r:RIDERS][ID] -> AVAILABLE).
+
+// ------------------- Generalized Queue -------------------
+SCHEDULER = QUEUE[0],
+
+QUEUE[n:QSIZE] = (
+    when (n < QMAX) request[r:RIDERS] -> QUEUE[n+1]
+  | when (n > 0)   match[r:RIDERS][d:DRIVERS] -> QUEUE[n-1]
+  | when (n > 0)   cancel[r:RIDERS] -> QUEUE[n-1]
+).
+
+
+// ------------------- System -------------------
+||PRESTO = (
+    forall[i:RIDERS] RIDER(i)
+ || forall[j:DRIVERS] DRIVER(j)
+ || SCHEDULER
+).
+
+// ------------------- FCFS Property -------------------
+
+
+// FCFS Property: Rider 0, Rider 1
+property FCFS =
+    ( request[0] -> NA1
+    | request[1] -> NA2
+    ).
+
+NA1 =
+    ( match[0][d:DRIVERS] -> FCFS
+    | request[1] -> SEEN12
+    ).
+
+SEEN12 =
+    ( match[0][d:DRIVERS] -> FCFS
+    | match[1][d:DRIVERS] -> ERROR
+    ).
+
+NA2 =
+    ( match[1][d:DRIVERS] -> FCFS
+    | request[0] -> SEEN21
+    ).
+
+SEEN21 =
+    ( match[1][d:DRIVERS] -> FCFS
+    | match[0][d:DRIVERS] -> ERROR
+    ).
+
+||CHECK = (PRESTO || FCFS).
