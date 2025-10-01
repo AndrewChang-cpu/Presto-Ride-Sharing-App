@@ -1,0 +1,47 @@
+// Define the number of concurrent riders and drivers
+const N_RIDERS = 2
+const N_DRIVERS = 1
+
+// Define ranges for their IDs, which will be used in loops and indexing
+range RIDERS = 0..N_RIDERS-1
+range DRIVERS = 0..N_DRIVERS-1
+
+// A Rider can be IDLE, WAITING for a match, or RIDING.
+RIDER(ID = 0) = IDLE,
+IDLE       = (request[ID] -> WAITING),
+WAITING    = (match[ID][d:DRIVERS] -> RIDING | cancel[ID] -> IDLE),
+RIDING     = (complete[ID][d:DRIVERS] -> IDLE).
+
+// A Driver is either AVAILABLE to take a request or DRIVING a rider.
+DRIVER(ID = 0) = AVAILABLE,
+AVAILABLE  = (match[r:RIDERS][ID] -> DRIVING),
+DRIVING    = (complete[r:RIDERS][ID] -> AVAILABLE).
+
+// The SCHEDULER enforces the First-Come, First-Served policy.
+// The process parameters [r1], [r1][r2] etc. model the request queue.
+SCHEDULER = EMPTY_QUEUE,
+EMPTY_QUEUE = (request[r:RIDERS] -> QUEUE_ONE[r]),
+
+// State with one pending request from rider r1
+QUEUE_ONE[r1:RIDERS] = (
+    // Service the head of the queue
+    match[r1][d:DRIVERS] -> EMPTY_QUEUE
+  | cancel[r1] -> EMPTY_QUEUE
+    // Or, add a new request to the tail of the queue
+  | request[r2:RIDERS] -> QUEUE_TWO[r1][r2]
+),
+
+// State with two pending requests (FCFS)
+QUEUE_TWO[r1:RIDERS][r2:RIDERS] = (
+    // ONLY the head of the queue (r1) can be serviced
+    match[r1][d:DRIVERS] -> QUEUE_ONE[r2]
+  | cancel[r1] -> QUEUE_ONE[r2]
+).
+
+// The complete system is the parallel composition of all riders,
+// all drivers, and the single central scheduler.
+||PRESTO = (
+    forall[i:RIDERS] RIDER(i)
+ || forall[j:DRIVERS] DRIVER(j)
+ || SCHEDULER
+).
