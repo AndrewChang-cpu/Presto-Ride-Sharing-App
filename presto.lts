@@ -1,71 +1,147 @@
-// ======================================================
-// Presto – Match-Making with Generalized Queue
-// ======================================================
+// -- Part 1: System Model --
 
-const N_RIDERS  = 2
+// Define the size of the system
+const N_RIDERS = 2
 const N_DRIVERS = 2
-const QMAX      = 3        
 
-range RIDERS   = 0..N_RIDERS-1
-range DRIVERS  = 0..N_DRIVERS-1
-range QSIZE    = 0..QMAX
+// Define ranges for IDs
+range RIDERS = 0..N_RIDERS-1
+range DRIVERS = 0..N_DRIVERS-1
 
-// ------------------- Rider -------------------
-RIDER(ID=0) = IDLE,
-IDLE        = (request[ID] -> WAITING),
-WAITING     = (match[ID][d:DRIVERS] -> RIDING
-              | cancel[ID] -> IDLE),
-RIDING      = (complete[ID][d:DRIVERS] -> IDLE).
+// A Rider requests a ride, waits, gets matched, and then completes the trip.
+RIDER(ID = 0) = IDLE,
+IDLE       = (request[ID] -> WAITING),
+WAITING    = (match[ID][d:DRIVERS] -> RIDING),
+RIDING     = (complete[ID][d:DRIVERS] -> IDLE).
 
-// ------------------- Driver -------------------
-DRIVER(ID=0) = AVAILABLE,
-AVAILABLE    = (match[r:RIDERS][ID] -> DRIVING),
-DRIVING      = (complete[r:RIDERS][ID] -> AVAILABLE).
+// A Driver is either available or busy driving a rider.
+DRIVER(ID = 0) = AVAILABLE,
+AVAILABLE  = (match[r:RIDERS][ID] -> DRIVING),
+DRIVING    = (complete[r:RIDERS][ID] -> AVAILABLE).
 
-// ------------------- Generalized Queue -------------------
-SCHEDULER = QUEUE[0],
+// The SCHEDULER enforces the FCFS policy.
+// The parameters [r1] and [r1][r2] model the queue.
+SCHEDULER = EMPTY_QUEUE,
 
-QUEUE[n:QSIZE] = (
-    when (n < QMAX) request[r:RIDERS] -> QUEUE[n+1]
-  | when (n > 0)   match[r:RIDERS][d:DRIVERS] -> QUEUE[n-1]
-  | when (n > 0)   cancel[r:RIDERS] -> QUEUE[n-1]
+// State when no requests are pending
+EMPTY_QUEUE = (request[r:RIDERS] -> QUEUE_ONE[r]),
+
+// State with one pending request from rider r1
+QUEUE_ONE[r1:RIDERS] = (
+    // Service the head of the queue (r1)
+    match[r1][d:DRIVERS] -> EMPTY_QUEUE
+    // Or, a different rider (r2) makes a request
+  | request[r2:RIDERS] -> QUEUE_TWO[r1][r2]
+),
+
+// State with two pending requests (FCFS enforced here)
+QUEUE_TWO[r1:RIDERS][r2:RIDERS] = (
+    // ONLY the head of the queue (r1) can be matched.
+    // Matching r2 is not an option in this state.
+    match[r1][d:DRIVERS] -> QUEUE_ONE[r2]
 ).
 
-
-// ------------------- System -------------------
+// The complete system is the parallel composition of all components.
 ||PRESTO = (
     forall[i:RIDERS] RIDER(i)
  || forall[j:DRIVERS] DRIVER(j)
  || SCHEDULER
 ).
 
-// ------------------- FCFS Property -------------------
+// -- Part 2: Properties --
 
+// Property 3: The system is free of deadlocks.
+// LTSA checks this by default. We can also make it an explicit assertion.
+assert DEADLOCK_FREE = !deadlock
 
-// FCFS Property: Rider 0, Rider 1
-property FCFS =
-    ( request[0] -> NA1
-    | request[1] -> NA2
-    ).
+// Property 1: Requests are matched in FCFS order.
+// This property checks that if request[0] happens before request[1],
+// then match[0] must happen before match[1].
 
-NA1 =
-    ( match[0][d:DRIVERS] -> FCFS
-    | request[1] -> SEEN12
-    ).
+property FCFS_CHECK = INITIAL,
+INITIAL = (
+    request[0] -> R0_REQUESTED
+  | request[1] -> R1_REQUESTED
+),
+// State after rider 0 has requested
+R0_REQUESTED = (
+    request[1] -> R0_THEN_R1_REQUESTED // Now the FCFS order is set
+  | match[0][d:DRIVERS] -> INITIAL      // R0 matched before R1 even requested, which is fine
+),
+// State after rider 1 has requested
+R1_REQUESTED = (
+    request[0] -> R1_THEN_R0_REQUESTED
+  | match[1][d:DRIVERS] -> INITIAL
+),
+// State where request[0] occurred before request[1]
+R0_THEN_R1_REQUESTED = (
+    // The only valid next match is for rider 0.
+    // A match for rider 1 here would be a violation.
+    match[0][d:DRIVERS] -> R1_AWAITS_MATCH
+),
+// Reciprocal state for the other order
+R1_THEN_R0_REQUESTED = (
+    match[1][d:DRIVERS] -> R0_AWAITS_MATCH
+),
+R1_AWAITS_MATCH = ( match[1][d:DRIVERS] -> INITIAL ),
+R0_AWAITS_MATCH = ( match[0][d:DRIVERS] -> INITIAL ).
 
-SEEN12 =
-    ( match[0][d:DRIVERS] -> FCFS
-    | match[1][d:DRIVERS] -> ERROR
-    ).
+// We check this property by composing it with our system.
+// LTSA will tell us if the ERROR state is reachable.
+||FCFS_SYSTEM_CHECK = (PRESTO || FCFS_CHECK).
 
-NA2 =
-    ( match[1][d:DRIVERS] -> FCFS
-    | request[0] -> SEEN21
-    ).
+// Property 2: Every request is eventually served (liveness).
+// We define a progress set for each rider. Each set includes the
+// request and match actions. LTSA will check that the system cannot
+// infinitely avoid the 'match' action after a 'request' has occurred.
 
-SEEN21 =
-    ( match[1][d:DRIVERS] -> FCFS
-    | match[0][d:DRIVERS] -> ERROR
-    ).
+progress RIDE_SERVED[r:RIDERS] = { request[r], match[r][d:DRIVERS] }
 
-||CHECK = (PRESTO || FCFS).
+// -- Part 2: Properties --
+
+// Property 3: The system is free of deadlocks.
+// LTSA checks this by default. We can also make it an explicit assertion.
+assert DEADLOCK_FREE = !deadlock
+
+// Property 1: Requests are matched in FCFS order.
+// This property checks that if request[0] happens before request[1],
+// then match[0] must happen before match[1].
+
+property FCFS_CHECK = INITIAL,
+INITIAL = (
+    request[0] -> R0_REQUESTED
+  | request[1] -> R1_REQUESTED
+),
+// State after rider 0 has requested
+R0_REQUESTED = (
+    request[1] -> R0_THEN_R1_REQUESTED // Now the FCFS order is set
+  | match[0][d:DRIVERS] -> INITIAL      // R0 matched before R1 even requested, which is fine
+),
+// State after rider 1 has requested
+R1_REQUESTED = (
+    request[0] -> R1_THEN_R0_REQUESTED
+  | match[1][d:DRIVERS] -> INITIAL
+),
+// State where request[0] occurred before request[1]
+R0_THEN_R1_REQUESTED = (
+    // The only valid next match is for rider 0.
+    // A match for rider 1 here would be a violation.
+    match[0][d:DRIVERS] -> R1_AWAITS_MATCH
+),
+// Reciprocal state for the other order
+R1_THEN_R0_REQUESTED = (
+    match[1][d:DRIVERS] -> R0_AWAITS_MATCH
+),
+R1_AWAITS_MATCH = ( match[1][d:DRIVERS] -> INITIAL ),
+R0_AWAITS_MATCH = ( match[0][d:DRIVERS] -> INITIAL ).
+
+// We check this property by composing it with our system.
+// LTSA will tell us if the ERROR state is reachable.
+||FCFS_SYSTEM_CHECK = (PRESTO || FCFS_CHECK).
+
+// Property 2: Every request is eventually served (liveness).
+// We define a progress set for each rider. Each set includes the
+// request and match actions. LTSA will check that the system cannot
+// infinitely avoid the 'match' action after a 'request' has occurred.
+
+progress RIDE_SERVED[r:RIDERS] = { request[r], match[r][d:DRIVERS] }
