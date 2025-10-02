@@ -66,6 +66,9 @@ fact {
 	// all drivers are tracked in all Presto instances
 	// since all presto instances are really the just same, just at different times
 	all p: Presto, d: Driver | d in p.available_drivers + p.offline_drivers + p.driving_drivers
+	
+	// no dangling requests
+	all req: Request | some p: Presto | req in p.pending_requests + p.riding_requests 
 }
 
 
@@ -111,6 +114,9 @@ pred op_cancel[p1, p2 : Presto, r : Rider] {
 	}
 }
 
+pred is_in_regions[d: Driver, req: Request] {
+    req.origin.parent_region in d.operating_regions and req.dest.parent_region in d.operating_regions
+}
 
 pred op_match[p1, p2 : Presto, r : Rider, d : Driver] {
 	let req = p1.rider_assignments[r] | {
@@ -122,10 +128,9 @@ pred op_match[p1, p2 : Presto, r : Rider, d : Driver] {
 		// driver must be available
 		d in p1.available_drivers
 		
-		// if there's any driver (d2) that operates in the request's origin region
-		// then the driver we're trying to match (d) must operate in the request's origin region
-		(some d2: Driver | req.origin.parent_region in d2.operating_regions)
-			implies req.origin.parent_region in d.operating_regions
+		// a driver can be matched if they are in the request's region,
+        // or if no other available driver is in the request's region.
+        is_in_regions[d, req] or (no other : p1.available_drivers | is_in_regions[other, req])
 		
 		
 		// post:
