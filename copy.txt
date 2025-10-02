@@ -1,0 +1,205 @@
+sig Presto {
+	riders: set Rider,
+	available_drivers : set Available,
+	offline_drivers : set Offline,
+	driving_drivers : set Driving,
+
+	pending_requests: set PendingReq,
+	riding_requests: set RidingReq,
+	
+	requests: Rider -> RidingReq,
+	driver_assignments: set ()
+	
+	regions: set Region,
+	locations: set Location
+}
+
+sig Rider {}
+
+abstract sig Driver {
+	// rider may be assigned a driver
+	operatesIn: some Region
+}
+sig Available, Offline extends Driver {}
+sig Driving extends Driver {
+	// must be assigned to exactly one ride request
+}
+
+sig Region {
+	// each region covers some locations
+	contains: some Location
+}
+sig Location {}
+
+// Ride requests
+abstract sig Request {
+	origin: one Location,
+	dest: one Location,
+}
+sig PendingReq extends Request {}
+sig RidingReq extends Request {}
+
+
+// ## PREDICATES
+
+
+pred invariants[p: Presto] {
+	// Each Ride request must have different origin and destination
+	all req : p.pending_request + p.riding_request | req.origin != req.dest
+
+	// Each Riding request must be assigned to exactly one Driving driver
+	all rq : p.riding_request | one d : p.driving_driver | d.assigned = rq
+
+	// Every location must belong to exactly one region
+	all l : p.location | one r : p.region | l in r.contains
+
+	// Every ride request must have one rider in p.rider
+	all rq : p.pending_request + p.riding_request | one r : p.rider | r.requests = rq
+}
+
+
+fact {
+	// all atoms must be assigned to a presto instance
+	all r: Rider | some p : Presto | r in p.rider
+	all d: Driver | some p : Presto | d in p.available_driver + p.offline_driver + p.driving_driver
+	all req: Request | some p : Presto | req in p.pending_request + p.riding_request
+	all reg: Region | some p : Presto | reg in p.region
+	all loc: Location | some p : Presto | loc in p.location
+}
+
+
+pred op_request[p1, p2 : Presto, r : Rider, req : PendingReq] {
+	r in p1.rider and r in p2.rider
+	
+
+	// precondition: rider has no active request
+	no r.requests
+
+	// post: rider now holds the request
+	r.requests = req
+
+	// post: add req to pending_request set
+	p2.pending_request = p1.pending_request + req
+
+	// everything else unchanged
+	p2.rider            = p1.rider
+	p2.available_driver = p1.available_driver
+	p2.offline_driver   = p1.offline_driver
+	p2.driving_driver   = p1.driving_driver
+	p2.riding_request   = p1.riding_request
+	p2.region           = p1.region
+	p2.location         = p1.location
+}
+
+
+pred op_cancel[p1, p2 : Presto, r : Rider] {
+	// precondition: rider has a pending request
+	one r.requests and r.requests in p1.pending_request
+
+	// post: rider has no active request
+	no r.requests
+
+	// post: remove request from pending_request set
+	p2.pending_request = p1.pending_request - r.requests
+
+	// everything else unchanged
+	p2.rider            = p1.rider
+	p2.available_driver = p1.available_driver
+	p2.offline_driver   = p1.offline_driver
+	p2.driving_driver   = p1.driving_driver
+	p2.riding_request   = p1.riding_request
+	p2.region           = p1.region
+	p2.location         = p1.location
+}
+
+
+pred op_match[p1, p2 : Presto, r : Rider, d : Available, ride : RidingReq] {
+	// precondition: rider has a pending request
+	some r.requests and r.requests in p1.pending_request
+	// precondition: driver is available
+	d in p1.available_driver
+	// precondition: request locations not in driver regions implies that no other available drivers have regions that match the request locations
+	(r.requests.origin !in d.operatesIn.contains or r.requests.dest !in d.operatesIn.contains) implies
+			no other : Available | other != d and (r.requests.origin in other.operatesIn.contains and r.requests.dest in other.operatesIn.contains)
+
+	// post: rider’s pending request becomes a riding request
+	r.requests = ride
+
+	// update system sets
+	p2.pending_request = p1.pending_request - r.requests
+	p2.riding_request  = p1.riding_request + ride
+
+	// post: driver moves from available to driving and is assigned
+	p2.available_driver = p1.available_driver - d
+	p2.driving_driver   = p1.driving_driver + d
+	some drv : Driving | drv.assigned = ride
+
+	// everything else unchanged
+	p2.rider          = p1.rider
+	p2.offline_driver = p1.offline_driver
+	p2.region         = p1.region
+	p2.location       = p1.location
+}
+
+
+pred op_complete[p1, p2 : Presto, r : Rider, d : Driving] {
+	// precondition: rider is in RidingReq assigned to d
+	some r.requests and r.requests = d.assigned
+	r.requests in p1.riding_request
+
+	// post: rider has no active request
+	no r.requests
+
+	// update system sets
+	p2.riding_request  = p1.riding_request - d.assigned
+	p2.driving_driver  = p1.driving_driver - d
+	p2.available_driver = p1.available_driver + d
+
+	// everything else unchanged
+	p2.rider            = p1.rider
+	p2.offline_driver   = p1.offline_driver
+	p2.pending_request  = p1.pending_request
+	p2.region           = p1.region
+	p2.location         = p1.location
+}
+
+
+assert RequestPreservesInvariants {
+	all p1, p2 : Presto, r : Rider, req : PendingReq |
+		invariants[p1] and op_request[p, p2, r, req] implies invariants[p2]
+}
+
+assert CancelPreservesInvariants {
+	all p1, p2 : Presto, r : Rider |
+		invariants[p1] and op_cancel[p, p2, r] implies invariants[p2]
+}
+
+assert MatchPreservesInvariants {
+	all p1, p2 : Presto, r : Rider, d : Available, ride : RidingReq |
+		invariants[p1] and op_match[p, p2, r, d, ride] implies invariants[p2]
+}
+
+assert CompletePreservesInvariants {
+	all p1, p2 : Presto, r : Rider, d : Driving |
+		invariants[p1] and op_complete[p, p2, r, d] implies invariants[p2]
+}
+
+check RequestPreservesInvariants for 4 but 2 Presto
+check CancelPreservesInvariants for 4 but 2 Presto
+check MatchPreservesInvariants for 4 but 2 Presto
+check CompletePreservesInvariants for 4 but 2 Presto
+
+run GenerateValidInstance {
+	all p : Presto | invariants[p]
+ 	#Presto=1
+
+	// all p, p2 : Presto, r : Rider, req : PendingReq |
+	//   invariants[p] and op_request[p, p2, r, req] implies invariants[p2]
+	
+	//#Region=2
+	//#Location=1
+	#Available=1
+	#Driving=2
+	#PendingReq >= 1
+	#RidingReq >= 1
+} for 3
