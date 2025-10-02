@@ -1,0 +1,51 @@
+range Rider_ID  = 0..1
+range Driver_ID = 0..1
+
+// ----- Rider process -----
+RIDER0 = ( request[0] -> (match[0][d:Driver_ID] -> complete[0][d] -> RIDER0
+  | cancel[0] -> RIDER0) ).
+
+RIDER1 = ( request[1] -> (match[1][d:Driver_ID] -> complete[1][d] -> RIDER1
+  | cancel[1] -> RIDER1) ).
+
+// ----- Driver process -----
+DRIVER0 = ( match[r:Rider_ID][0] -> complete[r][0] -> DRIVER0 ).
+DRIVER1 = ( match[r:Rider_ID][1] -> complete[r][1] -> DRIVER1 ).
+// ----- Scheduler SCHED (queue size 2) -----
+// SCHED : empty queue
+// SCHED[first] : queue has one pending request 'first'
+// SCHED[first][second] : queue has two pending requests (first is oldest)
+
+
+SCHED = (
+    // accept a request from any rider -> that rider becomes first
+    request[r:Rider_ID] -> SCHED[r]
+),
+
+SCHED[first:Rider_ID] = (
+    // accept another request -> becomes second
+    request[r:Rider_ID] -> SCHED[first][r]
+  // match the first request to any available driver -> queue becomes empty
+  | match[first][d:Driver_ID] -> SCHED
+  // rider 'first' cancels their pending request -> queue becomes empty
+  | cancel[first] -> SCHED
+),
+
+SCHED[first:Rider_ID][second:Rider_ID] = (
+  // queue full: cannot accept new request until a match or cancel reduces it
+  // match the first -> queue becomes S1[second]
+    match[first][d:Driver_ID] -> SCHED[second]
+  // first cancels -> second becomes first
+  |   cancel[first] -> SCHED[second]
+  // second cancels -> first remains (queue becomes S1[first])
+  |   cancel[second] -> SCHED[first]
+).
+
+// ----- System composition -----
+// Two rider instances, two driver instances, one scheduler
+//||PRESTO = ( r0:RIDER[0] || r1:RIDER[1] || d0:DRIVER[0] || d1:DRIVER[1] || s:SCHED ).
+||PRESTO = ( RIDER0 || RIDER1
+           || DRIVER0 || DRIVER1 
+           || SCHED ).
+
+           
