@@ -46,28 +46,25 @@ pred invariants[p: Presto] {
     // Each Ride request must have different origin and destination
     all req : p.pending_request + p.riding_request | req.origin != req.dest
 
-    // Every location must belong to exactly one region
-    all l : Location | one r : Region | l in r.contains
-
     // --- State Consistency for requests ---
-    // Every ride request must be owned by exactly one rider
-    //all rq : p.pending_request + p.riding_request | one r : Rider | r.(p.requests) = rq
-
     // Pending requests and riding requests make up all requests
     Rider.(p.requests) = p.pending_request + p.riding_request
 
     // --- State Consistency for assigned drivers ---
     // The domain of the `assigned` relation must be the set of all driving drivers
     p.assigned.Request = p.driving_driver
+
     // The range of the `assigned` relation must be the set of all riding requests
-    all rq : p.riding_request | one d : p.driving_driver | d.(p.assigned) = rq
-    // 
+    p.driving_driver.(p.assigned) = p.riding_request
 }
 
 
 fact {
-    all d: Driver | some p : Presto | d in p.available_driver + p.offline_driver + p.driving_driver
-    all req: Request | some p : Presto | req in p.pending_request + p.riding_request
+    all d : Driver | some p : Presto | d in p.available_driver + p.offline_driver + p.driving_driver
+    all req : Request | some p : Presto | req in p.pending_request + p.riding_request
+
+    // Every location must belong to exactly one region
+    all l : Location | one r : Region | l in r.contains
 }
 
 
@@ -104,7 +101,7 @@ pred op_cancel[p1, p2 : Presto, r : Rider] {
     p1.requests[r] in p1.pending_request
 
     // post: rider has no active request
-    no p2.requests[r]
+    p2.requests = p1.requests - (r -> p1.requests[r])
 
     // post: remove request from pending_request set
     p2.pending_request = p1.pending_request - p1.requests[r]
@@ -117,42 +114,39 @@ pred op_cancel[p1, p2 : Presto, r : Rider] {
     p2.assigned         = p1.assigned
 }
 
-
-pred op_match[p1, p2 : Presto, r : Rider, d : Driver, ride : Request] {
-    // precondition: rider has a pending request
-    let req = r.(p1.requests) {
-        some req and req in p1.pending_request
-    }
-    // precondition: driver is available
-    d in p1.available_driver
-    // precondition: request locations not in driver regions implies that no other available drivers have regions that match the request locations
-    let req = r.(p1.requests) {
-       (req.origin !in d.operatesIn.contains or req.dest !in d.operatesIn.contains) implies
-            no other : p1.available_driver - d | (req.origin in other.operatesIn.contains and req.dest in other.operatesIn.contains)
-    }
-
-    // post: rider’s pending request becomes a riding request
-    p2.requests = p1.requests - (r -> r.(p1.requests)) + (r -> ride)
-
-    // post: driver moves from available to driving and is assigned
-    p2.assigned = p1.assigned + (d -> ride)
-
-    // update system sets
-    p2.pending_request  = p1.pending_request - r.(p1.requests)
-    p2.riding_request   = p1.riding_request + ride
-    p2.available_driver = p1.available_driver - d
-    p2.driving_driver   = p1.driving_driver + d
-
-    // everything else unchanged
-    p2.offline_driver   = p1.offline_driver
+// Helper predicate to check if a request is within a driver's regions
+pred is_in_regions[d: Driver, req: Request] {
+    req.origin in d.operatesIn.contains and req.dest in d.operatesIn.contains
 }
+pred op_match[p1, p2 : Presto, r : Rider, d : Driver] {
+    let req = r.(p1.requests) {
+        // precondition: rider has a pending request
+        some req and req in p1.pending_request
 
+	// precondition: driver is available
+        d in p1.available_driver
+
+        // precondition: a driver can be matched if they are in the request's region,
+        // or if no other available driver is in the request's region.
+        is_in_regions[d, req] or (no other : p1.available_driver | is_in_regions[other, req])
+
+        // post:
+        p2.assigned = p1.assigned + (d -> req)
+        p2.pending_request  = p1.pending_request - req
+        p2.riding_request   = p1.riding_request + req
+        p2.available_driver = p1.available_driver - d
+        p2.driving_driver   = p1.driving_driver + d
+
+        // Specify which relations remain unchanged
+        p2.requests         = p1.requests
+        p2.offline_driver   = p1.offline_driver
+    }
+}
 
 pred op_complete[p1, p2 : Presto, r : Rider, d : Driver] {
     // precondition: rider is in RidingReq assigned to d
     d in p1.driving_driver
     r.(p1.requests) = d.(p1.assigned)
-    r.(p1.requests) in p1.riding_request
 
     // post: rider has no active request
     p2.requests = p1.requests - (r -> r.(p1.requests))
@@ -182,8 +176,8 @@ assert CancelPreservesInvariants {
 }
 
 assert MatchPreservesInvariants {
-  all p, p2 : Presto, r : Rider, d : Driver, ride : Request |
-    invariants[p] and op_match[p, p2, r, d, ride] implies invariants[p2]
+  all p, p2 : Presto, r : Rider, d : Driver |
+    invariants[p] and op_match[p, p2, r, d] implies invariants[p2]
 }
 
 assert CompletePreservesInvariants {
@@ -191,16 +185,16 @@ assert CompletePreservesInvariants {
     invariants[p] and op_complete[p, p2, r, d] implies invariants[p2]
 }
 
-check RequestPreservesInvariants for 5
-check CancelPreservesInvariants for 3 but exactly 2 Presto
-check MatchPreservesInvariants for 5
-check CompletePreservesInvariants for 5
+check RequestPreservesInvariants for 7
+check CancelPreservesInvariants for 7
+check MatchPreservesInvariants for 7
+check CompletePreservesInvariants for 7
 
 run GenerateValidInstance {
   //some p, p2 : Presto, r : Rider, req : PendingReq | op_request[p, p2, r, req]
   //some p, p2 : Presto, r : Rider | op_cancel[p, p2, r]
   //some p, p2 : Presto, r : Rider, a : Available, rq : RidingReq | op_match[p, p2, r, a, rq]
-  //some p, p2 : Presto, r : Rider, d : Driver | op_complete[p, p2, r, d]
+  some p, p2 : Presto, r : Rider, d : Driver | op_complete[p, p2, r, d]
 	
   #Presto=2
   //#Region=2
