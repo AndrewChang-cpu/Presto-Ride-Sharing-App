@@ -114,6 +114,7 @@ pred op_cancel[p1, p2 : Presto, r : Rider] {
 	}
 }
 
+// helper predicate to check if a request is within a driver's regions
 pred is_in_regions[d: Driver, req: Request] {
     req.origin.parent_region in d.operating_regions and req.dest.parent_region in d.operating_regions
 }
@@ -196,20 +197,16 @@ assert CompletePreservesInvariants {
 }
 
 check RequestPreservesInvariants
-for 6 but
-exactly 2 Presto
+for 6
 
 check CancelPreservesInvariants
-for 6 but
-exactly 2 Presto
+for 6
 
 check MatchPreservesInvariants
-for 6 but
-exactly 2 Presto
+for 6
 
 check CompletePreservesInvariants
-for 6 but
-exactly 2 Presto
+for 6
 
 run GenerateValidRequest {
 	all p: Presto | invariants[p]
