@@ -24,7 +24,8 @@ SCHED = (
 
 SCHED[first:Rider_ID] = (
     // accept another request -> becomes second
-    request[r:Rider_ID] -> SCHED[first][r]
+    request[r:Rider_ID] -> if (first == r) then ERROR else SCHED[first][r]
+    
   // match the first request to any available driver -> queue becomes empty
   | match[first][d:Driver_ID] -> SCHED
   // rider 'first' cancels their pending request -> queue becomes empty
@@ -34,7 +35,8 @@ SCHED[first:Rider_ID] = (
 SCHED[first:Rider_ID][second:Rider_ID] = (
   // queue full: cannot accept new request until a match or cancel reduces it
   // match the first -> queue becomes S1[second]
-    match[first][d:Driver_ID] -> SCHED[second]
+  request[r:Rider_ID] -> ERROR // to prevent new requests
+  |  match[first][d:Driver_ID] -> SCHED[second]
   // first cancels -> second becomes first
   |   cancel[first] -> SCHED[second]
   // second cancels -> first remains (queue becomes S1[first])
@@ -47,5 +49,3 @@ SCHED[first:Rider_ID][second:Rider_ID] = (
 ||PRESTO = ( RIDER0 || RIDER1
            || DRIVER0 || DRIVER1 
            || SCHED ).
-
-           
