@@ -79,3 +79,5 @@ Q_HAS_1 = (
 ),
 // Symmetrical case for if r1 requests before r0
 Q_HAS_1_0 = ( match[1][d:Driver_ID] -> Q_HAS_0 | cancel[1] -> Q_HAS_0 | cancel[0] -> Q_HAS_1 ).
+
+||CHECK = (PRESTO || FCFS_CHECK).
