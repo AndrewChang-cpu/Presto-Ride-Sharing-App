@@ -49,3 +49,33 @@ SCHED[first:Rider_ID][second:Rider_ID] = (
 ||PRESTO = ( RIDER0 || RIDER1
            || DRIVER0 || DRIVER1 
            || SCHED ).
+
+// -- SAFETY PROPERTY 1: First-Come, First-Served
+// Checks that if r0 requests then r1, the next match must be for r0.
+property FCFS_CHECK = (
+    request[0] -> Q_HAS_0
+),
+Q_HAS_0 = (
+    request[1] -> Q_HAS_0_1
+  | match[0][d:Driver_ID] -> FCFS_CHECK
+  | cancel[0] -> FCFS_CHECK
+),
+Q_HAS_0_1 = (
+    // Good: match r0 first, then we can match r1.
+    match[0][d:Driver_ID] -> Q_HAS_1
+    // Good: r0 cancels, r1 becomes first.
+  | cancel[0] -> Q_HAS_1
+    // Good: r1 (the second) cancels.
+  | cancel[1] -> Q_HAS_0
+    // BAD: cannot match r1 before r0.
+    // LTSA will find a violation if this path is possible in PRESTO.
+).
+
+// This helper state just tracks that r1 is now at the front of the queue.
+Q_HAS_1 = (
+    match[1][d:Driver_ID] -> FCFS_CHECK
+  | cancel[1] -> FCFS_CHECK
+  | request[0] -> Q_HAS_1_0 // Handle the other order
+),
+// Symmetrical case for if r1 requests before r0
+Q_HAS_1_0 = ( match[1][d:Driver_ID] -> Q_HAS_0 | cancel[1] -> Q_HAS_0 | cancel[0] -> Q_HAS_1 ).
