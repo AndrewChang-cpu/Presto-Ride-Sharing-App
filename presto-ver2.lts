@@ -1,7 +1,6 @@
 range Rider_ID  = 0..1
 range Driver_ID = 0..1
 
-// ----- Rider process -----
 RIDER0 = ( request[0] -> (match[0][d:Driver_ID] -> complete[0][d] -> RIDER0
   | cancel[0] -> RIDER0) ).
 
@@ -50,34 +49,51 @@ SCHED[first:Rider_ID][second:Rider_ID] = (
            || DRIVER0 || DRIVER1 
            || SCHED ).
 
-// -- SAFETY PROPERTY 1: First-Come, First-Served
-// Checks that if r0 requests then r1, the next match must be for r0.
-property FCFS_CHECK = (
-    request[0] -> Q_HAS_0
+// -- SAFETY PROPERTY 1: First-Come, First-Served (Corrected)
+// This property now correctly handles intermediate waiting states.
+property FCFS_CHECK = START,
+START = (
+    request[0] -> Q_HAS_0 |
+    request[1] -> Q_HAS_1
 ),
+// State after seeing request[0]; queue is [0]
 Q_HAS_0 = (
-    request[1] -> Q_HAS_0_1
-  | match[0][d:Driver_ID] -> FCFS_CHECK
-  | cancel[0] -> FCFS_CHECK
+    match[0][d:Driver_ID] -> START
+  | cancel[0] -> START
+  | request[1] -> Q_HAS_0_1 // Second request arrives
 ),
+// State after seeing request[1]; queue is [1]
+Q_HAS_1 = (
+    match[1][d:Driver_ID] -> START
+  | cancel[1] -> START
+  | request[0] -> Q_HAS_1_0 // Second request arrives
+),
+// State after request[0] then request[1]; queue is [0, 1]
+// THIS IS WHERE THE FCFS RULE IS ENFORCED.
 Q_HAS_0_1 = (
-    // Good: match r0 first, then we can match r1.
+    // Correct: match the first rider. The queue becomes [1].
     match[0][d:Driver_ID] -> Q_HAS_1
-    // Good: r0 cancels, r1 becomes first.
+    // VIOLATION: matching the second rider before the first.
+  | match[1][d:Driver_ID] -> ERROR
+    // OK: the first rider cancels, the second moves up.
   | cancel[0] -> Q_HAS_1
-    // Good: r1 (the second) cancels.
+    // OK: the second rider cancels.
   | cancel[1] -> Q_HAS_0
-    // BAD: cannot match r1 before r0.
-    // LTSA will find a violation if this path is possible in PRESTO.
+),
+// State after request[1] then request[0]; queue is [1, 0]
+// SYMMETRICAL CASE TO ENFORCE THE RULE.
+Q_HAS_1_0 = (
+    // Correct: match the first rider. The queue becomes [0].
+    match[1][d:Driver_ID] -> Q_HAS_0
+    // VIOLATION: matching the second rider before the first.
+  | match[0][d:Driver_ID] -> ERROR
+    // OK: the first rider cancels, the second moves up.
+  | cancel[1] -> Q_HAS_0
+    // OK: the second rider cancels.
+  | cancel[0] -> Q_HAS_1
 ).
 
-// This helper state just tracks that r1 is now at the front of the queue.
-Q_HAS_1 = (
-    match[1][d:Driver_ID] -> FCFS_CHECK
-  | cancel[1] -> FCFS_CHECK
-  | request[0] -> Q_HAS_1_0 // Handle the other order
-),
-// Symmetrical case for if r1 requests before r0
-Q_HAS_1_0 = ( match[1][d:Driver_ID] -> Q_HAS_0 | cancel[1] -> Q_HAS_0 | cancel[0] -> Q_HAS_1 ).
-
+// The composite system for checking remains the same
 ||CHECK = (PRESTO || FCFS_CHECK).
+// write progress check for above property
+progress RIDE_SERVED[r:Rider_ID] = {  request[r], match[r][d:Driver_ID], cancel[r], complete[r][d:Driver_ID] }
