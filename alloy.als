@@ -52,11 +52,6 @@ pred invariants[p: Presto] {
 
 	// every driver that is referenced by driver assignment must be driving
 	p.driver_assignments.univ = p.driving_drivers
-}
-
-
-fact {
-	// uninteresting invariants that apply globally
 
 	// every region must have one location
 	all r: Region | some l: Location | r in l.parent_region
@@ -70,7 +65,6 @@ fact {
 	// no dangling requests
 	all req: Request | some p: Presto | req in p.pending_requests + p.riding_requests 
 }
-
 
 pred op_request[p1, p2 : Presto, r : Rider, req : Request] {
 	// pre:
