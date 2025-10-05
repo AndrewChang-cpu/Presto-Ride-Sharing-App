@@ -1,0 +1,101 @@
+// Team 7: Andrew Chang, Divyansh (DS) Sood, Ricky Cui, Yoonmee Hwang
+
+range Rider_ID  = 0..1
+range Driver_ID = 0..1
+
+RIDER0 = ( request[0] -> (match[0][d:Driver_ID] -> complete[0][d] -> RIDER0
+  | cancel[0] -> RIDER0) ).
+
+RIDER1 = ( request[1] -> (match[1][d:Driver_ID] -> complete[1][d] -> RIDER1
+  | cancel[1] -> RIDER1) ).
+
+// ----- Driver process -----
+DRIVER0 = ( match[r:Rider_ID][0] -> complete[r][0] -> DRIVER0 ).
+DRIVER1 = ( match[r:Rider_ID][1] -> complete[r][1] -> DRIVER1 ).
+// ----- Scheduler SCHED (queue size 2) -----
+// SCHED : empty queue
+// SCHED[first] : queue has one pending request 'first'
+// SCHED[first][second] : queue has two pending requests (first is oldest)
+
+
+SCHED = (
+    // accept a request from any rider -> that rider becomes first
+    request[r:Rider_ID] -> SCHED[r]
+),
+
+SCHED[first:Rider_ID] = (
+    // accept another request -> becomes second
+    request[r:Rider_ID] -> if (first == r) then ERROR else SCHED[first][r]
+    
+  // match the first request to any available driver -> queue becomes empty
+  | match[first][d:Driver_ID] -> SCHED
+  // rider 'first' cancels their pending request -> queue becomes empty
+  | cancel[first] -> SCHED
+),
+
+SCHED[first:Rider_ID][second:Rider_ID] = (
+  // queue full: cannot accept new request until a match or cancel reduces it
+  // match the first -> queue becomes S1[second]
+  request[r:Rider_ID] -> ERROR // to prevent new requests
+  |  match[first][d:Driver_ID] -> SCHED[second]
+  // first cancels -> second becomes first
+  |   cancel[first] -> SCHED[second]
+  // second cancels -> first remains (queue becomes S1[first])
+  |   cancel[second] -> SCHED[first]
+).
+
+// ----- System composition -----
+// Two rider instances, two driver instances, one scheduler
+//||PRESTO = ( r0:RIDER[0] || r1:RIDER[1] || d0:DRIVER[0] || d1:DRIVER[1] || s:SCHED ).
+||PRESTO = ( RIDER0 || RIDER1
+           || DRIVER0 || DRIVER1 
+           || SCHED ).
+
+// -- SAFETY PROPERTY 1: First-Come, First-Served (Corrected)
+// This property now correctly handles intermediate waiting states.
+property FCFS_CHECK = START,
+START = (
+    request[0] -> Q_HAS_0 |
+    request[1] -> Q_HAS_1
+),
+// State after seeing request[0]; queue is [0]
+Q_HAS_0 = (
+    match[0][d:Driver_ID] -> START
+  | cancel[0] -> START
+  | request[1] -> Q_HAS_0_1 // Second request arrives
+),
+// State after seeing request[1]; queue is [1]
+Q_HAS_1 = (
+    match[1][d:Driver_ID] -> START
+  | cancel[1] -> START
+  | request[0] -> Q_HAS_1_0 // Second request arrives
+),
+// State after request[0] then request[1]; queue is [0, 1]
+// THIS IS WHERE THE FCFS RULE IS ENFORCED.
+Q_HAS_0_1 = (
+    // Correct: match the first rider. The queue becomes [1].
+    match[0][d:Driver_ID] -> Q_HAS_1
+    // VIOLATION: matching the second rider before the first.
+  | match[1][d:Driver_ID] -> ERROR
+    // OK: the first rider cancels, the second moves up.
+  | cancel[0] -> Q_HAS_1
+    // OK: the second rider cancels.
+  | cancel[1] -> Q_HAS_0
+),
+// State after request[1] then request[0]; queue is [1, 0]
+// SYMMETRICAL CASE TO ENFORCE THE RULE.
+Q_HAS_1_0 = (
+    // Correct: match the first rider. The queue becomes [0].
+    match[1][d:Driver_ID] -> Q_HAS_0
+    // VIOLATION: matching the second rider before the first.
+  | match[0][d:Driver_ID] -> ERROR
+    // OK: the first rider cancels, the second moves up.
+  | cancel[1] -> Q_HAS_0
+    // OK: the second rider cancels.
+  | cancel[0] -> Q_HAS_1
+).
+
+// The composite system for checking remains the same
+||CHECK = (PRESTO || FCFS_CHECK).
+// write progress check for above property
+progress RIDE_SERVED[r:Rider_ID] = {  request[r], match[r][d:Driver_ID], cancel[r], complete[r][d:Driver_ID] }
