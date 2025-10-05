@@ -269,3 +269,99 @@ exactly 2 Driver,
 exactly 2 Presto,
 exactly 1 Request,
 exactly 1 Rider
+
+
+// Positive Tests
+// checks if a valid `op_request` can occur.
+pred positiveTest_Request[] {
+	all s: Presto | invariants[s]
+	some p1, p2: Presto, r: Rider, req: Request |
+		op_request[p1, p2, r, req]
+}
+run positiveTest_Request for 4 expect 1
+
+
+// checks if a valid `op_cancel` can occur.
+pred positiveTest_Cancel[] {
+	all s: Presto | invariants[s]
+	some p1, p2: Presto, r: Rider |
+		op_cancel[p1, p2, r]
+}
+run positiveTest_Cancel for 4 expect 1
+
+
+// checks for a valid match where the driver is in the request's region.
+pred positiveTest_Match_InRegion[] {
+	all s: Presto | invariants[s]
+	some p1, p2: Presto, r: Rider, d: Driver | {
+		op_match[p1, p2, r, d]
+		is_in_regions[d, p1.rider_assignments[r]]
+	}
+}
+run positiveTest_Match_InRegion for 4 expect 1
+
+
+// checks for a valid match where no drivers are in the request's region.
+pred positiveTest_Match_OutOfRegion[] {
+	all s: Presto | invariants[s]
+	some p1, p2: Presto, r: Rider, d: Driver | {
+		op_match[p1, p2, r, d]
+		not is_in_regions[d, p1.rider_assignments[r]]
+	}
+}
+run positiveTest_Match_OutOfRegion for 4 expect 1
+
+
+// checks if a valid `op_complete` can occur.
+pred positiveTest_Complete[] {
+	all s: Presto | invariants[s]
+	some p1, p2: Presto, r: Rider, d: Driver |
+		op_complete[p1, p2, r, d]
+}
+run positiveTest_Complete for 4 expect 1
+
+// Negative Tests
+// asserts a rider with an active request cannot make another one.
+assert CannotRequestWhileActive {
+	all p1, p2: Presto, r: Rider, req: Request |
+		invariants[p1] and op_request[p1, p2, r, req] implies (r !in p1.rider_assignments.univ)
+}
+check CannotRequestWhileActive for 4
+
+// asserts a rider cannot cancel a request that is already in progress ('riding').
+assert CannotCancelRidingRequest {
+	all p1, p2: Presto, r: Rider |
+		invariants[p1] implies {
+			let req = p1.rider_assignments[r] |
+				req in p1.riding_requests implies not op_cancel[p1, p2, r]
+		}
+}
+check CannotCancelRidingRequest for 4
+
+// asserts a request cannot be matched to an unavailable driver.
+assert CannotMatchUnavailableDriver {
+	all p1, p2: Presto, r: Rider, d: Driver |
+		invariants[p1] and op_match[p1, p2, r, d] implies (d in p1.available_drivers)
+}
+check CannotMatchUnavailableDriver for 4
+
+// asserts that an in-region driver must be preferred over an out-of-region one.
+assert MustPreferDriverInRegion {
+	all p1, p2: Presto, r: Rider, d: Driver |
+		invariants[p1] and op_match[p1, p2, r, d] implies {
+			let req = p1.rider_assignments[r] |
+				(some other: p1.available_drivers | is_in_regions[other, req])
+				implies is_in_regions[d, req]
+		}
+}
+check MustPreferDriverInRegion for 4
+
+// asserts a ride cannot be completed if the rider and driver are mismatched.
+assert CannotCompleteMismatchedRide {
+	all p1, p2: Presto, r: Rider, d: Driver |
+		invariants[p1] implies {
+			(p1.rider_assignments[r] != p1.driver_assignments[d])
+			implies not op_complete[p1, p2, r, d]
+		}
+}
+check CannotCompleteMismatchedRide for 4
